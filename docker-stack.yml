@@ -2,9 +2,14 @@ services:
   traefik:
     image: traefik:v3.3.4
     command:
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
       - "--providers.swarm=true"
-      - "--providers.swarm.network=backend"
+      - "--providers.swarm.endpoint=unix:///var/run/docker.sock"
+      - "--providers.swarm.exposedByDefault=false"
+      - "--providers.swarm.network=news-stack_backend"
       - "--entrypoints.web.address=:80"
+      - "--log.level=DEBUG"
     deploy:
       placement:
         constraints: [node.role == manager]
@@ -16,7 +21,6 @@ services:
       - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./docker/config/traefik/prod.yml:/etc/traefik/traefik.yml
     networks:
       - backend
 
@@ -28,13 +32,13 @@ services:
     networks:
       - backend
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: newsuser
+      POSTGRES_PASSWORD: newspass123
+      POSTGRES_DB: newsdb
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U newsuser"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -45,57 +49,62 @@ services:
       mode: global
     networks:
       - backend
-    command: redis-server --requirepass ${REDIS_PASSWORD}
+    command: redis-server --requirepass redispass123
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "redispass123", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PASSWORD: redispass123
 
   app:
-    image: adam424/news-analyzer:prod
+    image: news-analyzer:local
     deploy:
       replicas: 3
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.app.rule=Host(`localhost`)"
+        - "traefik.http.routers.app.rule=PathPrefix(`/`)"
         - "traefik.http.routers.app.entrypoints=web"
         - "traefik.http.services.app.loadbalancer.server.port=8000"
+        - "traefik.docker.network=news-stack_backend"
       update_config:
         parallelism: 2
         delay: 10s
       resources:
         limits:
-          cpus: '0.75'
+          cpus: "0.75"
           memory: 512M
     networks:
       - backend
     environment:
       ENVIRONMENT: production
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
-      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/1
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
-      JWT_ALGORITHM: ${JWT_ALGORITHM}
-      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES}
-      API_KEY: ${API_KEY}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      DATABASE_URL: postgresql://newsuser:newspass123@db:5432/newsdb
+      REDIS_URL: redis://:redispass123@redis:6379/0
+      CELERY_BROKER_URL: redis://:redispass123@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:redispass123@redis:6379/1
+      JWT_SECRET_KEY: your-secret-key-change-in-production-12345678901234567890
+      JWT_ALGORITHM: HS256
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS: "7"
+      API_KEY: your-newsapi-key-here
+      REDIS_PASSWORD: redispass123
+      POSTGRES_USER: newsuser
+      POSTGRES_PASSWORD: newspass123
+      POSTGRES_DB: newsdb
     depends_on:
       - db
       - redis
 
   celery:
-    image: adam424/news-analyzer:prod
+    image: news-analyzer:local
     deploy:
       replicas: 2
       resources:
         limits:
-          cpus: '1'
+          cpus: "1"
           memory: 1G
     command: >
       celery -A app.core.celery worker
@@ -107,19 +116,21 @@ services:
       - backend
     environment:
       ENVIRONMENT: production
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
-      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/1
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
-      API_KEY: ${API_KEY}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      DATABASE_URL: postgresql://newsuser:newspass123@db:5432/newsdb
+      REDIS_URL: redis://:redispass123@redis:6379/0
+      CELERY_BROKER_URL: redis://:redispass123@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:redispass123@redis:6379/1
+      JWT_SECRET_KEY: your-secret-key-change-in-production-12345678901234567890
+      JWT_ALGORITHM: HS256
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+      API_KEY: your-newsapi-key-here
+      REDIS_PASSWORD: redispass123
 
     depends_on:
       - redis
 
   migrations:
-    image: adam424/news-analyzer:prod
+    image: news-analyzer:local
     deploy:
       placement:
         constraints: [node.role == manager]
