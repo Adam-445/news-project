@@ -81,16 +81,42 @@ docker-compose exec app pytest --cov
 
 ---
 
-## Production Deployment
+## Docker Swarm Deployment
 
-Use the `docker-stack.yml` for a Swarm cluster:
+For production-grade orchestration with load balancing and zero-downtime updates:
+
+1. Initialize Swarm mode (if not already done):
 
 ```bash
 docker swarm init
+```
+
+2. Build the production image:
+
+```bash
+docker build -t news-analyzer:local .
+```
+
+3. Deploy the stack:
+
+```bash
 docker stack deploy -c docker-stack.yml news-stack
 ```
 
-Traefik will route requests to the FastAPI service; customize `rules` and DNS accordingly.
+4. Verify services are running:
+
+```bash
+docker service ls
+```
+
+The system will run with:
+* **3 app replicas** (4 workers each = 12 total workers)
+* **Traefik load balancer** on port 80
+* **Zero-downtime rolling updates** (2 replicas at a time, 10s delay)
+* **PostgreSQL 17** with persistent volumes
+* **Redis 7** in global mode
+
+Access the API at `http://127.0.0.1/health` or `http://127.0.0.1/api/v1/articles/`
 
 ---
 
