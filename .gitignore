@@ -46,3 +46,6 @@ docker-compose.override.yml
 
 # Coverage reports  
 htmlcov/
+
+# tests directory while fixing
+tests/
